@@ -1,0 +1,59 @@
+# Runs the hazard pipeline on GitHub's servers and publishes the map to GitHub Pages.
+# One-time setup: repo Settings > Pages > Source: "GitHub Actions".
+# Optional: Settings > Secrets and variables > Actions > New secret FIRMS_MAP_KEY.
+name: Update hazard map
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"   # every 30 min (GitHub may delay scheduled runs)
+  workflow_dispatch:          # "Run workflow" button for manual refresh
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install requests folium pytest
+
+      - name: Tests
+        run: pytest -q
+
+      - name: Fetch data and build map
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+        run: |
+          python -m somaliland_hazards run --out _site
+          cp _site/map.html _site/index.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
